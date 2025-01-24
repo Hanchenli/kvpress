@@ -65,7 +65,7 @@ def evaluate(
     device: Optional[str] = None,
     press_name: str = "expected_attention",
     compression_ratio: float = 0.1,
-    fraction: float = 1.0,
+    fraction: float = 0.1,
     max_new_tokens: Optional[int] = None,
     max_context_length: Optional[int] = None,
     compress_questions: bool = False,
@@ -153,6 +153,7 @@ def evaluate(
 
     # Run pipeline on each context
     df["predicted_answer"] = None
+    df["ppl"] = None
     df_context = df.groupby("context")
     assert all(df_context["answer_prefix"].nunique() == 1)
 
@@ -168,11 +169,14 @@ def evaluate(
             max_new_tokens=max_new_tokens_,
             max_context_length=max_context_length,
         )
-        df.loc[df_.index, "predicted_answer"] = output["answers"]
+        print(output["answers"])
+        df.loc[df_.index, "predicted_answer"] = output["answers"][0]
+        df.loc[df_.index, "ppl"] = output["answers"][1]
         torch.cuda.empty_cache()
 
     # Save answers
     df["predicted_answer"].to_csv(str(save_filename), index=False)
+    df["ppl"].to_csv(str(save_filename).replace(".csv", "_ppl.csv"), index=False)
 
     # Calculate metrics
     scorer = SCORER_DICT[dataset]
