@@ -33,7 +33,7 @@ class KVPressTextGenerationPipeline(Pipeline):
         questions: Optional[list[str]] = None,
         answer_prefix: Optional[str] = None,
         press: Optional[BasePress] = None,
-        max_new_tokens: int = 50,
+        max_new_tokens: int = 150,
         max_context_length: Optional[int] = None,
         cache: Optional[Cache] = None,
         **kwargs,
@@ -139,6 +139,7 @@ class KVPressTextGenerationPipeline(Pipeline):
         press: Optional[BasePress] = None,
         cache: Optional[Cache] = None,
     ):
+        # print("forward is called")
         """
         Forward pass of the kv-press pipeline.
 
@@ -187,10 +188,9 @@ class KVPressTextGenerationPipeline(Pipeline):
                 context_length=(cache.get_seq_length() if isinstance(press, KeyRerotationPress) else context_length),
                 max_new_tokens=max_new_tokens,
             )
-            answers.append(answer)
-            ppls.append(ppl)
+            answers.append((answer, ppl))
 
-        return answers, ppls
+        return answers
 
     def output_attentions(self, press: BasePress):
         if isinstance(press, ObservedAttentionPress):
@@ -228,7 +228,7 @@ class KVPressTextGenerationPipeline(Pipeline):
         str
             The generated answer.
         """
-
+        # print("generate answer is called")
         cache_seq_lengths = [cache.get_seq_length(layer_idx) for layer_idx in range(len(cache))]
         position_ids = torch.arange(
             context_length, context_length + question_ids.shape[1], device=self.model.device
@@ -241,7 +241,9 @@ class KVPressTextGenerationPipeline(Pipeline):
             position_ids=position_ids,
             num_logits_to_keep=1,
         )
-
+        # print(outputs.logits[0, -1])
+        # print(outputs.logits[0, -1].max())
+        # print(F.softmax(outputs.logits[0, -1]).max())
         total_loss = 0.0
         num_tokens = 0
         
@@ -252,7 +254,10 @@ class KVPressTextGenerationPipeline(Pipeline):
         probs = F.log_softmax(logits, dim=-1)
         new_id = outputs.logits[0, -1].argmax()
         total_loss -= probs[new_id].item()
+        # print("printing loss")
+        # print(probs[new_id].item())
         num_tokens += 1
+
 
         should_stop_token_ids = self.model.generation_config.eos_token_id
         if not isinstance(should_stop_token_ids, list):
@@ -270,6 +275,8 @@ class KVPressTextGenerationPipeline(Pipeline):
             logits = outputs.logits[0, -1]  # Get logits for the last token
             probs = F.log_softmax(logits, dim=-1)
             total_loss -= probs[new_id].item()
+            # print(probs[new_id].item())
+
             num_tokens += 1
             
             if new_id.item() in should_stop_token_ids:
@@ -277,6 +284,7 @@ class KVPressTextGenerationPipeline(Pipeline):
         answer = self.tokenizer.decode(torch.stack(generated_ids), skip_special_tokens=True)
 
         avg_loss = total_loss / num_tokens
+        # print("before exp", avg_loss)
         perplexity = torch.exp(torch.tensor(avg_loss)).item()
         # Remove the generated tokens from the cache
         cache.key_cache = [
